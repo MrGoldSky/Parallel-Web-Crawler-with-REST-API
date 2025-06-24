@@ -2,7 +2,7 @@ package fetcher
 
 import (
 	"context"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"time"
 )
@@ -31,7 +31,7 @@ func (h *HTTPFetcher) Fetch(ctx context.Context, url string) ([]byte, error) {
         return nil, err
     }
     defer resp.Body.Close()
-    return ioutil.ReadAll(resp.Body)
+    return io.ReadAll(resp.Body)
 }
 
 
