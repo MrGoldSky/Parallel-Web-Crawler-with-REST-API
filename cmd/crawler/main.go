@@ -38,7 +38,7 @@ func main() {
     mgr := crawler.NewManager(httpF, htmlP, stor, 5, 100)
 
     // Start server
-    srv := api.NewServer(mgr)
+    srv := api.NewServer(mgr, stor)
     log.Println("Starting API on :8080")
     if err := srv.Run(":8080"); err != nil {
         log.Fatalf("server error: %v", err)

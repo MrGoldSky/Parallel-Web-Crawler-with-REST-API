@@ -1,24 +1,27 @@
 package api
 
 import (
-    "net/http"
+	"context"
+	"net/http"
 
-    "github.com/gin-gonic/gin"
-    "github.com/MrGoldSky/Parallel-Web-Crawler-with-REST-API/pkg/crawler"
+	"github.com/MrGoldSky/Parallel-Web-Crawler-with-REST-API/pkg/crawler"
+	"github.com/MrGoldSky/Parallel-Web-Crawler-with-REST-API/pkg/storage"
+	"github.com/gin-gonic/gin"
 )
 
 // Server handles HTTP requests.
 type Server struct {
     router  *gin.Engine
     manager *crawler.CrawlManager
+    storage storage.Storage
 }
 
 // NewServer builds API server with manager dependency.
-func NewServer(mgr *crawler.CrawlManager) *Server {
+func NewServer(mgr *crawler.CrawlManager, storage storage.Storage) *Server {
     gin.SetMode(gin.ReleaseMode)
     r := gin.New()
     r.Use(gin.Logger(), gin.Recovery())
-    srv := &Server{router: r, manager: mgr}
+    srv := &Server{router: r, manager: mgr, storage: storage}
     srv.routes()
     return srv
 }
@@ -56,7 +59,15 @@ func (s *Server) stopCrawl(c *gin.Context) {
 }
 
 func (s *Server) listPages(c *gin.Context) {
-    pages := s.manager.StoredPages(c.Query("q"))
+    q := c.Query("q")
+    pages, err := s.storage.SearchPages(context.Background(), q)
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+        return
+    }
+    if pages == nil {
+        pages = []string{}
+    }
     c.JSON(http.StatusOK, gin.H{"pages": pages})
 }
 
