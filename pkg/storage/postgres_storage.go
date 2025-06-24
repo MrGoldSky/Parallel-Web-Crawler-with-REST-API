@@ -1,12 +1,12 @@
 package storage
 
 import (
-    "context"
-    "database/sql"
-    "encoding/json"
-    "fmt"
+	"context"
+	"database/sql"
+	"encoding/json"
+	"fmt"
 
-    _ "github.com/lib/pq"
+	_ "github.com/lib/pq"
 )
 
 type PostgresStorage struct {
@@ -86,4 +86,9 @@ LIMIT 100;
         urls = append(urls, u)
     }
     return urls, nil
+}
+
+func (p *PostgresStorage) Clear(ctx context.Context) error {
+    _, err := p.db.ExecContext(ctx, "TRUNCATE pages")
+    return err
 }

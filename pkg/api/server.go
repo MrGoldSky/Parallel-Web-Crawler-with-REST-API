@@ -32,6 +32,7 @@ func (s *Server) routes() {
     api.POST("/crawl/stop", s.stopCrawl)
     api.GET("/pages", s.listPages)
     api.GET("/stats", s.stats)
+    api.DELETE("/pages", s.clearPages)
 }
 
 func (s *Server) Run(addr string) error {
@@ -73,4 +74,12 @@ func (s *Server) listPages(c *gin.Context) {
 
 func (s *Server) stats(c *gin.Context) {
     c.JSON(http.StatusOK, s.manager.Stats())
+}
+
+func (s *Server) clearPages(c *gin.Context) {
+    if err := s.storage.Clear(context.Background()); err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+        return
+    }
+    c.JSON(http.StatusOK, gin.H{"status": "cleared"})
 }

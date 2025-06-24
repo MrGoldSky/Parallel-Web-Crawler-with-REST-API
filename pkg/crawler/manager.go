@@ -2,6 +2,8 @@ package crawler
 
 import (
 	"context"
+	"net/url"
+	"path"
 	"sync"
 
 	"github.com/MrGoldSky/Parallel-Web-Crawler-with-REST-API/pkg/fetcher"
@@ -24,6 +26,7 @@ type CrawlManager struct {
 
     mu sync.Mutex
     visited map[string]struct{}
+    pending int
     stats CrawlStats
     ctx context.Context
     cancel context.CancelFunc
@@ -45,71 +48,97 @@ func NewManager(f fetcher.Fetcher, p parser.Parser, s storage.Storage, workers, 
 }
 
 func (m *CrawlManager) Start(seeds []string, maxDepth int) {
+    m.mu.Lock()
+    m.visited = make(map[string]struct{})
+    m.stats = CrawlStats{}
+    m.pending = 0
+    m.mu.Unlock()
+
     m.pool = fetcher.NewPool(m.ctx, m.fetcher, m.workers, m.queueSize)
     m.pool.Start()
     go m.runBFS(seeds, maxDepth)
 }
 
+func normalizeURL(raw string) (string, error) {
+    u, err := url.Parse(raw)
+    if err != nil {
+        return "", err
+    }
+    u.Fragment = ""
+    u.Path = path.Clean(u.Path)
+    return u.String(), nil
+}
+
 func (m *CrawlManager) runBFS(seeds []string, maxDepth int) {
     depths := make(map[string]int)
-    pending := 0
 
-    for _, u := range seeds {
+    // Enqueue seed URLs
+    for _, raw := range seeds {
+        u, err := normalizeURL(raw)
+        if err != nil {
+            continue
+        }
         m.mu.Lock()
         if _, seen := m.visited[u]; !seen {
             m.visited[u] = struct{}{}
             depths[u] = 0
-            m.stats.Queue++
+            m.pending++
             m.mu.Unlock()
 
             m.pool.Submit(u)
-            pending++
         } else {
             m.mu.Unlock()
         }
     }
 
-    for pending > 0 {
-        select {
-        case <-m.ctx.Done():
-            return
-        case res, ok := <-m.pool.Results():
-            if !ok {
-                return
-            }
-            pending--
-
-            depth := depths[res.URL]
-            m.mu.Lock()
-            if res.Err != nil {
-                m.stats.Errors++
-            } else {
-                m.stats.Fetched++
-            }
+    for {
+        m.mu.Lock()
+        if m.pending == 0 {
             m.mu.Unlock()
+            break
+        }
+        m.mu.Unlock()
 
-            if res.Err == nil {
-                // Parse HTML
-                data, err := m.parser.Parse(res.Body)
-                if err == nil {
-                    _ = m.storage.SavePage(context.Background(), res.URL, data)
-                    if depth < maxDepth {
-                        for _, link := range data.InternalLinks {
-                            m.mu.Lock()
-                            if _, seen := m.visited[link]; !seen {
-                                m.visited[link] = struct{}{}
-                                depths[link] = depth + 1
-                                m.stats.Queue++
-                                m.mu.Unlock()
+        res, ok := <-m.pool.Results()
+        if !ok {
+            break
+        }
 
-                                m.pool.Submit(link)
-                                pending++
-                            } else {
-                                m.mu.Unlock()
-                            }
-                        }
-                    }
-                }
+        m.mu.Lock()
+        m.pending--
+        if res.Err != nil {
+            m.stats.Errors++
+            m.mu.Unlock()
+            continue
+        }
+        m.stats.Fetched++
+        m.mu.Unlock()
+
+        data, err := m.parser.Parse(res.Body)
+        if err == nil {
+            _ = m.storage.SavePage(context.Background(), res.URL, data)
+        }
+
+        depth := depths[res.URL]
+        if err != nil || depth >= maxDepth {
+            continue
+        }
+
+        for _, link := range data.InternalLinks {
+            norm, err := normalizeURL(link)
+            if err != nil {
+                continue
+            }
+            m.mu.Lock()
+            if _, seen := m.visited[norm]; !seen {
+                m.visited[norm] = struct{}{}
+                depths[norm] = depth + 1
+                m.pending++
+                m.mu.Unlock()
+
+                m.pool.Submit(norm)
+            } else {
+                m.mu.Unlock()
             }
         }
     }

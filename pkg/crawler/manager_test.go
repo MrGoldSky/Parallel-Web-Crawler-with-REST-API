@@ -35,6 +35,7 @@ func (p *stubParser) Parse(html []byte) (parser.PageData, error) {
 
 type stubStorage struct {
     saved map[string]interface{}
+	pages []string
 }
 
 func newStubStorage() *stubStorage {
@@ -58,6 +59,11 @@ func (s *stubStorage) SearchPages(ctx context.Context, keyword string) ([]string
 
 func contains(str, substr string) bool {
     return len(substr) == 0 || (len(str) >= len(substr) && str[:len(substr)] == substr)
+}
+
+func (s *stubStorage) Clear(ctx context.Context) error {
+    s.pages = make([]string, 0)
+    return nil
 }
 
 func TestCrawlManagerBFS(t *testing.T) {
