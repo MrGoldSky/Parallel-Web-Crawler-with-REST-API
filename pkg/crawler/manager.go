@@ -48,6 +48,11 @@ func NewManager(f fetcher.Fetcher, p parser.Parser, s storage.Storage, workers, 
 }
 
 func (m *CrawlManager) Start(seeds []string, maxDepth int) {
+    if m.cancel != nil {
+        m.cancel()
+    }
+    m.ctx, m.cancel = context.WithCancel(context.Background())
+
     m.mu.Lock()
     m.visited = make(map[string]struct{})
     m.stats = CrawlStats{}
@@ -65,7 +70,14 @@ func normalizeURL(raw string) (string, error) {
         return "", err
     }
     u.Fragment = ""
-    u.Path = path.Clean(u.Path)
+
+    clean := path.Clean(u.Path)
+    if clean == "." {
+        u.Path = ""
+    } else {
+        u.Path = clean
+    }
+
     return u.String(), nil
 }
 
@@ -74,18 +86,18 @@ func (m *CrawlManager) runBFS(seeds []string, maxDepth int) {
 
     // Enqueue seed URLs
     for _, raw := range seeds {
-        u, err := normalizeURL(raw)
+        norm, err := normalizeURL(raw)
         if err != nil {
             continue
         }
         m.mu.Lock()
-        if _, seen := m.visited[u]; !seen {
-            m.visited[u] = struct{}{}
-            depths[u] = 0
+        if _, seen := m.visited[norm]; !seen {
+            m.visited[norm] = struct{}{}
+            depths[norm] = 0
             m.pending++
             m.mu.Unlock()
 
-            m.pool.Submit(u)
+            m.pool.Submit(norm)
         } else {
             m.mu.Unlock()
         }
